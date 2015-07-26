@@ -1,0 +1,62 @@
+#!/usr/bin/python
+
+"""
+ppwd: pretty-print working directory
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Because being at the mercy of another's deep directory
+structure can be quite dissatisfying to the eyes.
+
+Turns paths like:
+  ~/dev/work/directory/src/main/etc/etc/etc/more-stuff
+
+Into:
+  ~/dev/work/.../etc/more-stuff
+"""
+
+
+import os
+import sys
+
+
+PATH_SPLIT = '/'
+ABSPATH_TEMPLATE = '/Users/{login}'
+ELLIPSIS = '...'
+
+
+def get_local_path():
+    """Gets a "localized" path.
+    """
+    path = os.getcwd()
+    login = os.getlogin()
+    abspath_leader = ABSPATH_TEMPLATE.format(login=login)
+    return path.replace(abspath_leader, '~', 1)
+
+
+def prettify(path):
+    """Take the first three and last two directories. That's enough.
+    Burn the rest and replace it with an ellipsis.
+    """
+    split = path.split(PATH_SPLIT)
+
+    if len(split) < 6:
+        return path
+
+    return PATH_SPLIT.join([
+        split[0],
+        split[1],
+        split[2],
+        ELLIPSIS,
+        split[-2],
+        split[-1]
+    ])
+
+
+def ppwd():
+    """Prettify our local path.
+    """
+    return prettify(get_local_path())
+
+
+if __name__ == '__main__':
+    sys.stdout.write(ppwd())
