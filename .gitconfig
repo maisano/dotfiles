@@ -27,3 +27,6 @@
     ds = diff --staged
     rekt = reset --hard
     prom = pull --rebase origin master
+
+[pull]
+    rebase = true
