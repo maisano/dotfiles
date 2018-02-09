@@ -35,6 +35,7 @@ call plug#end()
 filetype plugin indent on
 syntax on
 
+set termguicolors
 set background=dark
 set t_Co=256
 colorscheme hybrid_material
