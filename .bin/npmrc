@@ -1,0 +1,225 @@
+#!/usr/bin/env node
+
+const fs = require('fs');
+const path = require('path');
+
+const usage = `
+npmrc - An .npmrc profile manager
+
+Usage:
+  npmrc                  Show help message
+  npmrc ls               List available profiles
+  npmrc show             Print active profile
+  npmrc rm [profile]     Delete profile
+  npmrc use [profile]    Switch to a given profile
+  npmrc new [profile]    Create a new profile
+  npmrc save [profile]   Save active profile
+`;
+
+const command = process.argv[2];
+const name = process.argv[3];
+const home = process.env.HOME;
+const dir = process.env.NPMRC_DIRECTORY || '.npmrc-profiles';
+
+const NPMRC_PATH = path.join(home, '.npmrc');
+const PROFILE_DIRECTORY = path.join(home, dir);
+const UNSAVED_NAME = '(unsaved)';
+const EMPTY_NAME = '(empty)';
+
+function getNPMRCFileContents() {
+  try {
+    fs.accessSync(NPMRC_PATH, fs.constants.F_OK);
+  } catch (e) {
+    return '';
+  }
+
+  return fs.readFileSync(NPMRC_PATH).toString();
+}
+
+function getProfiles() {
+  // Ensure the profile directory exists
+  try {
+    fs.accessSync(PROFILE_DIRECTORY, fs.constants.F_OK);
+  } catch (e) {
+    fs.mkdirSync(PROFILE_DIRECTORY);
+  }
+
+  const active = getNPMRCFileContents();
+  const files = fs.readdirSync(PROFILE_DIRECTORY);
+
+  const profiles = files.map((file) => {
+    const contents = fs
+      .readFileSync(path.join(PROFILE_DIRECTORY, file))
+      .toString();
+
+    return {
+      name: file,
+      isActive: contents === active,
+    };
+  });
+
+  if (profiles.every((profile) => !profile.isActive)) {
+    profiles.unshift({
+      name: active.length ? UNSAVED_NAME : EMPTY_NAME,
+      isActive: true,
+    });
+  }
+
+  return profiles;
+}
+
+function getActiveProfile() {
+  return getProfiles().find((profile) => {
+    return profile.isActive;
+  });
+}
+
+switch (command) {
+  case 'ls': {
+    const profiles = getProfiles();
+    profiles.forEach((profile) => {
+      process.stdout.write(`${profile.isActive ? '*' : ' '} ${profile.name}`);
+      process.stdout.write('\n');
+    });
+    break;
+  }
+
+  case 'show': {
+    // Create empty file when none exists
+    try {
+      fs.accessSync(NPMRC_PATH, fs.constants.F_OK);
+    } catch (e) {
+      fs.writeFileSync(NPMRC_PATH, '');
+    }
+
+    process.stdout.write(getNPMRCFileContents());
+    process.exit(0);
+
+    break;
+  }
+
+  case 'use': {
+    // Validate args
+    if (!name) {
+      process.stdout.write('Missing name argument.\n\n');
+      process.stdout.write('  Usage:\n');
+      process.stdout.write('    npmrc use [profile]\n\n');
+      process.exit(1);
+    }
+
+    // Ensure profile exists
+    try {
+      fs.accessSync(path.join(PROFILE_DIRECTORY, name), fs.constants.F_OK);
+    } catch (e) {
+      process.stdout.write(`No profile found for ${name}.\n`);
+      process.exit(1);
+    }
+
+    // Prevent accidental loss of unsaved profile
+    const force = process.argv[4] === '--force';
+    const active = getActiveProfile();
+
+    if (!force && active.name === UNSAVED_NAME) {
+      process.stdout.write('Your active profile is not backed up.\n\n');
+      process.stdout.write('  To backup your profile:\n');
+      process.stdout.write('    npmrc save [profile]\n\n');
+      process.stdout.write('  To destructively continue:\n');
+      process.stdout.write('    npmrc use [profile] --force\n');
+      process.exit(1);
+    }
+
+    // Save stored profile as active
+    const profilePath = path.join(PROFILE_DIRECTORY, name);
+    const contents = fs.readFileSync(profilePath).toString();
+
+    fs.writeFileSync(NPMRC_PATH, contents);
+
+    break;
+  }
+
+  case 'new': {
+    // Prevent unintentional destruction of active config
+    const force = process.argv[3] === '--force';
+    const active = getActiveProfile();
+
+    if (!force && active.name === UNSAVED_NAME) {
+      process.stdout.write('Your active profile is not backed up.\n\n');
+      process.stdout.write('  To backup your profile:\n');
+      process.stdout.write('    npmrc save [profile]\n\n');
+      process.stdout.write('  To destructively continue:\n');
+      process.stdout.write('    npmrc new --force\n');
+      process.exit(1);
+    }
+
+    // Stub out new rc file
+    fs.writeFileSync(NPMRC_PATH, '');
+
+    break;
+  }
+
+  case 'rm': {
+    // Validate args
+    if (!name) {
+      process.stdout.write('Missing name argument.\n\n');
+      process.stdout.write('  Usage:\n');
+      process.stdout.write('    npmrc rm [profile]\n\n');
+      process.exit(1);
+    }
+
+    const profilePath = path.join(PROFILE_DIRECTORY, name);
+
+    // Ensure file exists before removing
+    try {
+      fs.accessSync(profilePath, fs.constants.F_OK);
+    } catch (e) {
+      // Nothing to do
+      process.exit(0);
+    }
+
+    // Remove profile file
+    fs.unlinkSync(profilePath);
+    process.exit(0);
+
+    break;
+  }
+
+  case 'save': {
+    // Validate args
+    if (!name) {
+      process.stdout.write('Missing name argument.\n\n');
+      process.stdout.write('  Usage:\n');
+      process.stdout.write('    npmrc save [profile]\n\n');
+      process.exit(1);
+    }
+
+    const active = getActiveProfile();
+
+    // Ensure active profile is worth saving
+    if (active.name === EMPTY_NAME) {
+      process.stdout.write('Your active profile is empty.\n');
+      process.exit(1);
+    }
+
+    // Ensure we're not saving a duplicate profile
+    if (active.name !== UNSAVED_NAME && active.name !== name) {
+      process.stdout.write(`Your active profile matches ${active.name}; `);
+      process.stdout.write(`saving it as ${name} is duplicative.\n\n`);
+      process.stdout.write('  Perhaps you meant:\n');
+      process.stdout.write(`    npmrc save ${active.name}\n\n`);
+      process.exit(1);
+    }
+
+    // Save the active npmrc as the given name
+    fs.writeFileSync(
+      path.join(PROFILE_DIRECTORY, name),
+      getNPMRCFileContents(),
+    );
+
+    break;
+  }
+
+  default:
+    // Print help
+    process.stdout.write(usage);
+    process.exit(0);
+}
